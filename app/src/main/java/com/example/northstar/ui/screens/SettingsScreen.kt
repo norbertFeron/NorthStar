@@ -28,6 +28,7 @@ import com.example.northstar.ui.components.*
 import com.example.northstar.ui.theme.*
 import com.example.northstar.viewmodel.AuthViewModel
 import com.example.northstar.viewmodel.ConnectionState
+import com.example.northstar.viewmodel.DashViewModel
 import kotlinx.coroutines.launch
 
 @Composable
@@ -35,10 +36,13 @@ fun SettingsScreen(
     conn: ConnectionState,
     onConnChange: (ConnectionState) -> Unit,
     authViewModel: AuthViewModel,
+    dashViewModel: DashViewModel,
     onSignedOut: () -> Unit,
     onBack: () -> Unit,
 ) {
     val auth by authViewModel.state.collectAsState()
+    val dashUi by dashViewModel.ui.collectAsState()
+    var showSwitchDialog by remember { mutableStateOf(false) }
     val email = auth.email ?: "Not signed in"
     val initials = remember(auth.email, auth.displayName) {
         val src = auth.displayName?.takeIf { it.isNotBlank() } ?: auth.email ?: "?"
@@ -98,11 +102,44 @@ fun SettingsScreen(
                 sub = when (conn) { ConnectionState.Connected -> "Connected"; ConnectionState.Searching -> "Connecting…"; ConnectionState.Offline -> "Not connected" },
                 control = { NorthstarChip(if (conn == ConnectionState.Connected) "Linked" else "Off", if (conn == ConnectionState.Connected) ChipTone.Gold else ChipTone.Off, dot = true) })
             NorthstarDivider(Modifier.padding(horizontal = 6.dp))
+            // Switch to a different bike's dash. The app pins to the first dash it pairs with; this
+            // forgets it so the next connect re-discovers and pairs with whichever RE dash is nearby.
+            SettingRow(NorthstarIcons.Motor, "Switch bike",
+                sub = if (dashUi.ssid.isNotBlank()) "Paired: ${dashUi.ssid} · tap to pair a different dash"
+                      else "Not paired — pairs with any nearby Royal Enfield dash",
+                control = { Icon(NorthstarIcons.ChevronRight, null, tint = TextLo, modifier = Modifier.size(18.dp)) },
+                onClick = if (dashUi.ssid.isNotBlank()) ({ showSwitchDialog = true }) else null)
+            NorthstarDivider(Modifier.padding(horizontal = 6.dp))
             SettingRow(NorthstarIcons.Sync, "Auto-connect on start", "Link when the bike is near",
                 control = { NorthstarToggle(autoConnect) { autoConnect = it } })
             NorthstarDivider(Modifier.padding(horizontal = 6.dp))
             SettingRow(NorthstarIcons.Zap, "Stream quality", "Balanced · saves battery",
                 control = { Icon(NorthstarIcons.ChevronRight, null, tint = TextLo, modifier = Modifier.size(18.dp)) }, last = true)
+        }
+
+        if (showSwitchDialog) {
+            androidx.compose.material3.AlertDialog(
+                onDismissRequest = { showSwitchDialog = false },
+                title = { Text("Switch to another bike?") },
+                text = {
+                    Text(
+                        "This forgets the paired dash" +
+                            (if (dashUi.ssid.isNotBlank()) " (${dashUi.ssid})" else "") +
+                            ". The next connection pairs with whichever Royal Enfield dash is nearby — " +
+                            "do it next to the other bike, with its dash on.",
+                    )
+                },
+                confirmButton = {
+                    androidx.compose.material3.TextButton(onClick = {
+                        dashViewModel.disconnect()
+                        dashViewModel.forgetDash()
+                        showSwitchDialog = false
+                    }) { Text("Forget & switch", color = Gold) }
+                },
+                dismissButton = {
+                    androidx.compose.material3.TextButton(onClick = { showSwitchDialog = false }) { Text("Cancel") }
+                },
+            )
         }
 
         SectionLabel("During a ride")
