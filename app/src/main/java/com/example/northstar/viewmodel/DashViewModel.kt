@@ -59,6 +59,7 @@ data class DashUiState(
     val followMode: Boolean = true,
     val thermal: String = "OK",
     val needsWifiOn: Boolean = false,   // Wi‑Fi radio is off → UI prompts to enable it
+    val needsLocationOn: Boolean = false, // Location services (master toggle) off → can't resolve dash SSID for auth
     // For the in-app Google Map view
     val riderLat: Double? = null,
     val riderLng: Double? = null,
@@ -427,7 +428,7 @@ class DashViewModel(app: Application) : AndroidViewModel(app) {
     fun connect() {
         userWantsConnection = true
         authAttempts = 0
-        _ui.update { it.copy(errorMessage = null, retryAttempt = 0, needsWifiOn = false) }
+        _ui.update { it.copy(errorMessage = null, retryAttempt = 0, needsWifiOn = false, needsLocationOn = false) }
 
         // The dash link needs the Wi‑Fi radio on (WifiNetworkSpecifier joins it as a separate
         // per-app network — the phone's current Wi‑Fi/cellular is untouched). Android 10+ won't
@@ -439,6 +440,20 @@ class DashViewModel(app: Application) : AndroidViewModel(app) {
                 errorMessage = "Turn on Wi‑Fi to connect to the dash") }
             return
         }
+
+        // First pairing needs the EXACT dash SSID. The OS only reveals it (both WiFi scan results AND
+        // the connected network's WifiInfo.ssid) when Location Services — the master toggle, NOT just
+        // the runtime permission — is ON. With it off the SSID stays empty and the dash silently
+        // rejects the encrypted auth handshake (looks like a generic "auth timed out"). Surface the
+        // real cause. Only gates FIRST pairing; once the SSID is learned + stored, scanning isn't needed.
+        if (dashConfig.needsDiscovery &&
+            !com.example.northstar.util.DeviceReadiness.locationServicesEnabled(getApplication())) {
+            userWantsConnection = false
+            _ui.update { it.copy(stage = ConnStage.ERROR, needsLocationOn = true,
+                errorMessage = "Turn on Location to find your dash (needed once, to pair)") }
+            return
+        }
+
         com.example.northstar.data.RideDiagnostics.init(getApplication())
         com.example.northstar.data.RideDiagnostics.start("connect")
         // Stamp the running build's identity into the log so a pulled ride is matched 1:1 to the

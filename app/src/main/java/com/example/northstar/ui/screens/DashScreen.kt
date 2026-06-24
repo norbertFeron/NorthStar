@@ -165,6 +165,13 @@ fun DashScreen(vm: DashViewModel = viewModel()) {
                 ) {
                     vm.connect()
                 }
+                // Came back with Location services now enabled → retry the pairing automatically.
+                if (uiState.value.needsLocationOn &&
+                    com.example.northstar.util.DeviceReadiness.locationServicesEnabled(context) &&
+                    hasEssentialPermissions()
+                ) {
+                    vm.connect()
+                }
             }
         }
         lifecycleOwner.lifecycle.addObserver(obs)
@@ -246,6 +253,7 @@ fun DashScreen(vm: DashViewModel = viewModel()) {
                         NorthstarBtn(
                             when {
                                 ui.needsWifiOn -> "Turn on Wi‑Fi"
+                                ui.needsLocationOn -> "Turn on Location"
                                 ui.stage == ConnStage.ERROR -> "Try again"
                                 else -> "Connect"
                             },
@@ -256,6 +264,14 @@ fun DashScreen(vm: DashViewModel = viewModel()) {
                                     ui.needsWifiOn -> runCatching {
                                         context.startActivity(
                                             android.content.Intent(android.provider.Settings.Panel.ACTION_WIFI)
+                                        )
+                                    }
+                                    // Location services (master toggle) must be ON to resolve the dash
+                                    // SSID for the auth handshake on first pairing. Open the location
+                                    // settings; connect() auto-retries on resume.
+                                    ui.needsLocationOn -> runCatching {
+                                        context.startActivity(
+                                            android.content.Intent(android.provider.Settings.ACTION_LOCATION_SOURCE_SETTINGS)
                                         )
                                     }
                                     // Connect handles the background-activity ask itself (single button).
