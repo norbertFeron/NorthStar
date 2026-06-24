@@ -130,6 +130,12 @@ fun DashScreen(vm: DashViewModel = viewModel()) {
     }
 
     val streaming = ui.stage == ConnStage.STREAMING
+    // Tear the MapLibre map down the INSTANT a connection starts (Wi-Fi/auth), not at the streaming
+    // transition. Disposing MapLibre's native MapView (TextureView GL surface) at the same moment the
+    // MediaCodec encoder input Surface is created races the GL renderer thread's eglSwap on some OEMs
+    // (MIUI especially) → SIGABRT in libgui/libhwui (mbgl AndroidGLRenderableResource::swap). Disposing
+    // it seconds earlier, while connecting, lets the GL thread fully tear down before the encoder spins up.
+    val connectingOrLive = ui.stage == ConnStage.WIFI || ui.stage == ConnStage.AUTH || streaming
 
     // Auto-connect on opening the Dash screen, so the rider doesn't tap "Connect" every
     // ride — just open the app. Fires once; if the dash is off it errors out quietly and
@@ -321,13 +327,12 @@ fun DashScreen(vm: DashViewModel = viewModel()) {
                         contentScale = androidx.compose.ui.layout.ContentScale.Crop,
                         modifier = Modifier.fillMaxSize(),
                     )
-                    // Streaming but the first dash frame hasn't been produced yet: show a lightweight
-                    // placeholder, NOT the MapLibre map. The off-screen encoder is spinning up here,
-                    // and instantiating + tearing down MapLibre's native MapView in this exact window
-                    // (it gets destroyed the instant the first frame swaps it out) raced the encoder
-                    // and SIGSEGV'd the whole process — which froze the dash on its last frame (the
-                    // "still image"). Keeping MapLibre out of the streaming path removes that race.
-                    streaming -> Box(
+                    // Connecting OR streaming-before-first-frame: show a lightweight placeholder, NOT the
+                    // MapLibre map. MapLibre's native MapView is disposed as soon as connecting starts
+                    // (see [connectingOrLive]) so its GL/TextureView teardown finishes well before the
+                    // encoder's MediaCodec Surface is created — disposing it concurrently raced the GL
+                    // renderer thread and crashed the process (SIGSEGV/SIGABRT in libmaplibre/libgui).
+                    connectingOrLive -> Box(
                         Modifier.fillMaxSize().background(Color(0xFF0B0D0E)),
                         contentAlignment = Alignment.Center,
                     ) {
